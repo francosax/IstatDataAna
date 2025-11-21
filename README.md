@@ -52,8 +52,8 @@ dataflows = client.get_dataflows()
 print(f"Trovati {len(dataflows)} dataflow")
 
 # Filtra per nome
-incidenti = dataflows[dataflows['name_it'].str.contains('incidenti', case=False)]
-print(incidenti)
+coltivazioni = dataflows[dataflows['name_it'].str.contains('coltiva', case=False)]
+print(coltivazioni)
 ```
 
 ### 3. Esplora metadati
@@ -64,36 +64,33 @@ freq = client.get_codelist("CL_FREQ")
 print(freq)
 
 # Ottieni struttura dati di un dataflow
-structure = client.get_datastructure("115_333")
+structure = client.get_datastructure("101_1015")
 
 # Ottieni valori effettivamente disponibili (SELECT DISTINCT)
-constraints = client.get_available_constraints("41_983")
+constraints = client.get_available_constraints("101_1015")
 ```
 
 ### 4. Scarica dati
 
 ```python
-# Esempio base: tutti i dati
+# Esempio base: scarica con periodo limitato
 df = client.get_data(
-    dataflow_id="115_333",
-    format="csv"
-)
-
-# Con filtri su dimensioni
-# Struttura key: "dim1.dim2.dim3.dim4.dim5"
-# Valori multipli: "dim1+dim1b.dim2.dim3"
-# Nessun filtro: "."
-
-df = client.get_data(
-    dataflow_id="41_983",
-    key=".F.082053..",  # Solo feriti (F) a Palermo (082053)
-    start_period="2015",
-    end_period="2020",
+    dataflow_id="101_1015",  # Coltivazioni
+    start_period="2022",
+    end_period="2023",
     format="csv"
 )
 
 print(df.head())
+
+# Con filtri su dimensioni (quando disponibili)
+# Struttura key: "dim1.dim2.dim3.dim4.dim5"
+# Valori multipli: "dim1+dim1b.dim2.dim3"
+# Nessun filtro per dimensione: "."
+# Esempio: key=".A..." per frequenza annuale
 ```
+
+> **Nota API**: Il client utilizza SDMX-JSON 2.0. Alcuni dataflow potrebbero richiedere strutture di chiavi specifiche. Usa `get_datastructure()` e `get_available_constraints()` per esplorare le dimensioni disponibili.
 
 ## 🔍 Esempi Avanzati
 
@@ -106,10 +103,9 @@ analyzer = IstatDataAnalyzer()
 
 # Scarica e prepara serie temporale
 df = analyzer.download_timeseries(
-    dataflow_id="41_983",
-    key=".F.082053..",
-    start_year=2001,
-    end_year=2020
+    dataflow_id="101_1015",
+    start_year=2010,
+    end_year=2023
 )
 
 # Calcola crescita year-over-year
@@ -119,22 +115,11 @@ df = analyzer.calculate_growth_rate(df)
 df = analyzer.detect_outliers(df, method='iqr')
 ```
 
-### Confronto regioni
-
-```python
-# Confronta dati tra Palermo e Bari
-df_compare = analyzer.compare_regions(
-    dataflow_id="41_983",
-    region_codes=["082053", "072006"],
-    start_year=2010
-)
-```
-
 ### Preparazione per Machine Learning
 
 ```python
 # Crea features per ML
-df_ml = analyzer.download_timeseries("41_983", key=".F.082053..")
+df_ml = analyzer.download_timeseries("101_1015", start_year=2000)
 
 # Feature engineering
 df_ml['year'] = df_ml['TIME_PERIOD'].dt.year
@@ -151,7 +136,7 @@ from sklearn.model_selection import train_test_split
 
 | ID | Nome | Descrizione |
 |----|------|-------------|
-| 41_983 | Incidenti stradali | Incidenti, morti e feriti per comune |
+| 101_1015 | Coltivazioni | Superfici e produzione agricola |
 | 115_333 | Produzione industriale | Indice produzione industriale |
 | 47_850 | Prezzi al consumo | Indici prezzi al consumo NIC |
 | 144_125 | Occupazione | Occupati e disoccupati |
@@ -161,39 +146,41 @@ from sklearn.model_selection import train_test_split
 ```python
 # Cerca per keyword
 dataflows = client.get_dataflows()
-pil = dataflows[dataflows['name_it'].str.contains('pil', case=False, na=False)]
-print(pil[['id', 'name_it']])
+produzione = dataflows[dataflows['name_it'].str.contains('produzione', case=False, na=False)]
+print(produzione[['id', 'name_it']])
 ```
 
 ## ⚙️ Struttura delle Query
 
 ### Anatomia di una chiave di filtro
 
-Per il dataflow `41_983` (incidenti):
-- Dimensioni: `FREQ.ESITO.ITTER107.TIPO_DATO.TIME_PERIOD`
+Le chiavi di filtro permettono di selezionare sottoinsiemi di dati per dimensione:
+- Formato: `DIM1.DIM2.DIM3.DIM4...`
+- `.` = tutti i valori per quella dimensione
+- `VALUE` = valore specifico (es: `A` per frequenza annuale)
+- `VAL1+VAL2` = valori multipli (OR logico)
 
 ```python
-# Esempio: ".F.082053+072006.."
-# Pos 1 (FREQ): . = tutti i valori
-# Pos 2 (ESITO): F = solo feriti
-# Pos 3 (ITTER107): 082053+072006 = Palermo O Bari
-# Pos 4 (TIPO_DATO): . = tutti
-# Pos 5 (TIME_PERIOD): gestito da start/end_period
+# Esempio: ".A.IT.."
+# Pos 1: . = tutte le frequenze
+# Pos 2: A = solo dati annuali (se A = Annual)
+# Pos 3: IT = solo Italia
+# Pos 4: . = tutti gli altri valori
 ```
 
 ### Come trovare i codici
 
 ```python
-# 1. Ottieni la struttura
-structure = client.get_datastructure("41_983")
+# 1. Ottieni la struttura del dataflow
+structure = client.get_datastructure("101_1015")
 
 # 2. Per ogni dimensione, ottieni la codelist
-codelist_esito = client.get_codelist("CL_ESITO")
-print(codelist_esito)
-# Output: F=feriti, M=morti, I=incidenti
+codelist_freq = client.get_codelist("CL_FREQ")
+print(codelist_freq)
+# Output: A=annuale, M=mensile, Q=trimestrale, etc.
 
 # 3. Oppure usa availableconstraint per vedere solo valori presenti
-constraints = client.get_available_constraints("41_983")
+constraints = client.get_available_constraints("101_1015")
 ```
 
 ## ⚠️ Limitazioni e Best Practices
@@ -205,11 +192,14 @@ constraints = client.get_available_constraints("41_983")
 
 ### Gestione file grandi
 ```python
-# ❌ NON fare: scarica tutto senza filtri
-df = client.get_data("41_983")  # 53 MB!
+# ❌ NON fare: scarica tutto senza filtri temporali
+df = client.get_data("101_1015")  # Potenzialmente molto grande!
 
-# ✅ Meglio: applica filtri
-df = client.get_data("41_983", key="..082053..", start_period="2015")
+# ✅ Meglio: limita il periodo e usa filtri dimensionali
+df = client.get_data("101_1015", start_period="2020", end_period="2023")
+
+# ✅ Ancora meglio: aggiungi filtri su dimensioni
+df = client.get_data("101_1015", key=".A...", start_period="2020")  # Solo dati annuali
 ```
 
 ### Caching

@@ -4,7 +4,14 @@ Esegui questo script per validare l'installazione e la connettività
 """
 
 import sys
+import os
 from datetime import datetime
+
+# Set UTF-8 encoding for Windows console
+if sys.platform == 'win32':
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
 
 
 def test_imports():
@@ -65,27 +72,27 @@ def test_connectivity(client):
 def test_data_download(client):
     """Test 4: Download dati di esempio"""
     print("\n[TEST 4] Test download dati...")
-    
+
     try:
         # Prova a scaricare un piccolo dataset
-        # Incidenti a Palermo, solo 2020
+        # Usa il primo dataflow disponibile con un periodo limitato
         df = client.get_data(
-            dataflow_id="41_983",
-            key="..082053..",  # Palermo
-            start_period="2020",
-            end_period="2020",
+            dataflow_id="101_1015",
+            start_period="2023",
+            end_period="2023",
             format="csv"
         )
-        
+
         if len(df) > 0:
             print(f"✓ Download completato - {len(df)} record")
-            print(f"  Colonne: {df.columns.tolist()}")
-            print(f"  Primi valori OBS_VALUE: {df['OBS_VALUE'].head(3).tolist()}")
+            print(f"  Colonne: {df.columns.tolist()[:5]}...")
+            if 'OBS_VALUE' in df.columns:
+                print(f"  Primi valori OBS_VALUE: {df['OBS_VALUE'].head(3).tolist()}")
             return True
         else:
             print("⚠ Download OK ma dataset vuoto")
             return False
-            
+
     except Exception as e:
         print(f"❌ Errore download: {e}")
         return False

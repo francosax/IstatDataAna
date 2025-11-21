@@ -1,8 +1,9 @@
 # CLAUDE.md - AI Assistant Guide for IstatDataAna
 
-**Last Updated**: 2025-11-21
+**Last Updated**: 2025-11-21 (Updated after SDMX 2.0 migration)
 **Repository**: ISTAT SDMX Python Client
 **Purpose**: Comprehensive guide for AI assistants working on this codebase
+**API Version**: SDMX-JSON 2.0
 
 ---
 
@@ -28,6 +29,31 @@ This is a Python client library for interfacing with ISTAT's (Italian National I
 - **Penalty**: Exceeding rate limit results in 1-2 day IP ban
 - **Data size**: Some datasets are very large (50+ MB); always use filters
 - **API stability**: ISTAT API can be slow or unavailable; implement retries
+
+### ⚡ IMPORTANT: SDMX 2.0 Format
+
+**The ISTAT API uses SDMX-JSON 2.0 format**, not 1.0. Key differences:
+
+1. **JSON Structure**: Uses `names` object for localized strings
+   ```json
+   {
+     "id": "101_1015",
+     "name": "Crops",
+     "names": {
+       "it": "Coltivazioni",
+       "en": "Crops"
+     }
+   }
+   ```
+
+2. **Accept Headers**: Simple headers work best
+   - Metadata: `Accept: application/json`
+   - Data CSV: `Accept: text/csv`
+   - ❌ Avoid versioned SDMX headers like `application/vnd.sdmx.structure+json;version=1.0.0`
+
+3. **URL Structure**: Data endpoint format is `data/{dataflow_id}/{key}`
+   - Provider ID (IT1) is implicit, not in URL path
+   - Example: `data/101_1015/.A...?startPeriod=2023`
 
 ---
 
@@ -370,14 +396,16 @@ else:
 - `VAL1+VAL2` = Multiple values (OR)
 - Empty string = No filtering
 
-**Example for Dataflow 41_983** (Traffic Accidents):
+**Example for Dataflow 101_1015** (Crops):
 ```
-Dimensions: FREQ.ESITO.ITTER107.TIPO_DATO
+Dimensions vary by dataflow - use get_datastructure() to discover
 
 Examples:
-- "..082053.."    → All frequencies, all outcomes, Palermo only, all data types
-- ".F.082053+072006.." → All frequencies, injured (F), Palermo OR Bari, all types
-- "" → No filters (downloads everything - use with caution!)
+- ".A..."         → Filter for annual data (first dimension)
+- ".A+M..."       → Annual OR Monthly (multiple values)
+- ""              → No filters (downloads everything - use with caution!)
+
+Note: Always combine with start_period/end_period to limit data volume
 ```
 
 ### Finding Dimension Values
@@ -389,9 +417,22 @@ Examples:
 4. Alternative: Use `get_available_constraints()` for only existing combinations
 
 **Common Codelists**:
-- `CL_FREQ`: Frequency (A=annual, M=monthly, Q=quarterly)
+- `CL_FREQ`: Frequency (A=annual, M=monthly, Q=quarterly, B=biannual, D=daily)
 - `CL_AREA`: Geographic areas
-- `CL_ESITO`: Accident outcome (I=incidents, F=injured, M=deaths)
+- Dimension-specific codelists vary by dataflow - explore with `get_datastructure()`
+
+**Important**: SDMX 2.0 returns `names` object with localized strings:
+```python
+# Codelist response structure
+{
+  "id": "A",
+  "name": "annual",
+  "names": {
+    "it": "annuale",
+    "en": "annual"
+  }
+}
+```
 
 ---
 
@@ -504,10 +545,12 @@ test: Add validation for large dataset queries
 
 | ID | Name (IT) | Name (EN) | Use Case |
 |----|-----------|-----------|----------|
-| 41_983 | Incidenti stradali | Traffic accidents | Time series analysis, safety |
+| 101_1015 | Coltivazioni | Crops | Agriculture production data |
 | 115_333 | Produzione industriale | Industrial production | Economic indicators |
 | 47_850 | Prezzi al consumo | Consumer prices | Inflation analysis |
 | 144_125 | Occupazione | Employment | Labor market |
+
+**Note**: Always test dataflows with `get_available_constraints()` before downloading large datasets.
 
 ### External Resources
 
@@ -571,12 +614,23 @@ Before suggesting code changes:
 - Included complete examples to reduce learning curve
 - Italian documentation (target audience)
 
+**Recent Changes (2025-11-21)**:
+- ✅ **Migrated to SDMX-JSON 2.0**: Updated all JSON parsing to use `names` object
+- ✅ **Simplified Accept Headers**: Changed from versioned SDMX headers to simple `application/json` and `text/csv`
+- ✅ **Fixed Data Endpoint URL**: Removed provider_id from path (now implicit)
+- ✅ **Windows Encoding Fix**: Added UTF-8 console encoding for Unicode support
+- ✅ **Updated Documentation**: All examples now use working dataflow 101_1015
+- ⚠️ **Deprecated**: `provider_id` parameter in `get_data()` kept for compatibility but unused
+- ℹ️ **Known Issue**: Some historical dataflows (e.g., 41_983) may return 404 - investigate endpoint structure
+
 **Future Considerations**:
+- Investigate 404 errors on legacy dataflows
+- Add JSON format data download tests
+- Implement retry logic with exponential backoff
+- Add caching layer for metadata queries
 - Async support for concurrent queries (respecting rate limits)
-- Caching layer for metadata queries
 - Integration with other Italian statistical databases
 - Export to more formats (Excel, Parquet)
-- Interactive dashboard/GUI
 
 ---
 
@@ -591,15 +645,17 @@ client = IstatSDMXClient()
 
 # Get available datasets
 dataflows = client.get_dataflows()
+print(f"Found {len(dataflows)} dataflows")
 
-# Download data
+# Download data with temporal filter
 df = client.get_data(
-    dataflow_id="41_983",
-    key="..082053..",      # Palermo
-    start_period="2020",
+    dataflow_id="101_1015",  # Agriculture crops
+    start_period="2022",
+    end_period="2023",
     format="csv"
 )
 
+print(f"Downloaded {len(df)} records")
 print(df.head())
 ```
 

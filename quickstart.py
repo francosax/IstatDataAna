@@ -11,7 +11,7 @@ Uso:
 """
 
 from istat_sdmx_client import IstatSDMXClient
-import pandas as pd
+# import pandas as pd
 
 
 def esempio_veloce():
@@ -77,7 +77,7 @@ def esplora_dataset_disponibili():
     print("\n[1] Recupero lista dataflow...")
     dataflows = client.get_dataflows()
     print(f"✓ Trovati {len(dataflows)} dataset disponibili")
-    
+    dataflows.to_csv("dataflows_found.csv")
     print("\n[2] Cerca dataset per keyword...")
     keyword = input("Inserisci una parola chiave (es: 'produzione', 'occupazione', 'prezzi'): ")
     

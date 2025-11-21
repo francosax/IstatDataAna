@@ -1,6 +1,10 @@
 """
 ISTAT SDMX API Client
 Classe Python per interfacciarsi con le API REST SDMX dell'ISTAT
+
+Questo client utilizza SDMX-JSON 2.0 per la comunicazione con le API ISTAT.
+Supporta il download di dati statistici, metadati, e la gestione automatica
+del rate limiting (5 richieste/minuto).
 """
 
 import requests
@@ -14,6 +18,17 @@ from datetime import datetime
 class IstatSDMXClient:
     """
     Client per accedere ai dati statistici ISTAT via API SDMX REST
+
+    Questo client supporta:
+    - Download dati in formato CSV, JSON, XML
+    - Accesso a metadati (dataflows, codelists, datastructures)
+    - Rate limiting automatico (5 richieste/minuto)
+    - Parsing SDMX-JSON 2.0
+
+    Esempio:
+        >>> client = IstatSDMXClient()
+        >>> dataflows = client.get_dataflows()
+        >>> df = client.get_data("101_1015", start_period="2023")
     """
     
     # Endpoint principale
@@ -90,19 +105,20 @@ class IstatSDMXClient:
         
         headers = {}
         if format.lower() == "json":
-            headers["Accept"] = "application/vnd.sdmx.structure+json;version=1.0.0"
+            headers["Accept"] = "application/json"
         
         response = self._make_request(endpoint, headers)
         
         if format.lower() == "json":
             data = response.json()
-            # Parsing della struttura JSON SDMX
+            # Parsing della struttura JSON SDMX 2.0
             dataflows = []
             for df in data.get('data', {}).get('dataflows', []):
+                names = df.get('names', {})
                 dataflows.append({
                     'id': df.get('id'),
-                    'name_it': df.get('name', {}).get('it'),
-                    'name_en': df.get('name', {}).get('en'),
+                    'name_it': names.get('it', df.get('name', '')),
+                    'name_en': names.get('en', df.get('name', '')),
                     'agency': df.get('agencyID'),
                     'version': df.get('version')
                 })
@@ -124,7 +140,7 @@ class IstatSDMXClient:
         """
         # Prima ottieni il dataflow per trovare l'ID della datastructure
         endpoint = f"dataflow/{agency_id}/{dataflow_id}"
-        headers = {"Accept": "application/vnd.sdmx.structure+json;version=1.0.0"}
+        headers = {"Accept": "application/json"}
         
         response = self._make_request(endpoint, headers)
         data = response.json()
@@ -155,7 +171,7 @@ class IstatSDMXClient:
             DataFrame con i codici e le descrizioni
         """
         endpoint = f"codelist/{agency_id}/{codelist_id}"
-        headers = {"Accept": "application/vnd.sdmx.structure+json;version=1.0.0"}
+        headers = {"Accept": "application/json"}
         
         response = self._make_request(endpoint, headers)
         data = response.json()
@@ -163,15 +179,16 @@ class IstatSDMXClient:
         codelists = data.get('data', {}).get('codelists', [])
         if not codelists:
             raise ValueError(f"Codelist {codelist_id} non trovata")
-        
+
         codes = []
         for code in codelists[0].get('codes', []):
+            names = code.get('names', {})
             codes.append({
                 'id': code.get('id'),
-                'name_it': code.get('name', {}).get('it'),
-                'name_en': code.get('name', {}).get('en')
+                'name_it': names.get('it', code.get('name', '')),
+                'name_en': names.get('en', code.get('name', ''))
             })
-        
+
         return pd.DataFrame(codes)
     
     def get_available_constraints(self, dataflow_id: str) -> Dict:
@@ -186,7 +203,7 @@ class IstatSDMXClient:
             Dizionario con i valori disponibili per dimensione
         """
         endpoint = f"availableconstraint/{dataflow_id}"
-        headers = {"Accept": "application/vnd.sdmx.structure+json;version=1.0.0"}
+        headers = {"Accept": "application/json"}
         
         response = self._make_request(endpoint, headers)
         return response.json()
@@ -203,36 +220,43 @@ class IstatSDMXClient:
     ) -> pd.DataFrame:
         """
         Recupera i dati da un dataflow
-        
+
         Args:
-            dataflow_id: ID del dataflow (es: "115_333")
-            key: Chiave di filtro (es: ".F.082053.." per filtrare dimensioni)
-                 Separare valori multipli con +, lasciare vuoto per nessun filtro
-            provider_id: ID del provider (default: IT1)
-            start_period: Periodo inizio (ISO8601: 2014-01 o SDMX: 2014-Q3)
-            end_period: Periodo fine
+            dataflow_id: ID del dataflow (es: "101_1015")
+            key: Chiave di filtro (es: ".A..." per filtrare dimensioni)
+                 Formato: "DIM1.DIM2.DIM3..."
+                 - "." = tutti i valori per quella dimensione
+                 - "VALUE" = valore specifico
+                 - "VAL1+VAL2" = valori multipli (OR)
+                 Lasciare vuoto per nessun filtro
+            provider_id: DEPRECATED - Parametro mantenuto per compatibilità ma non utilizzato.
+                        L'API ISTAT usa IT1 come provider di default.
+            start_period: Periodo inizio (formato: "YYYY" o "YYYY-MM")
+            end_period: Periodo fine (formato: "YYYY" o "YYYY-MM")
             format: Formato output (csv, json, xml)
             **kwargs: Altri parametri query string (detail, includeHistory, etc.)
-            
+
         Returns:
-            DataFrame con i dati (se formato CSV o JSON)
-            
+            DataFrame con i dati (se formato CSV), dict se JSON, str se XML
+
         Esempi:
-            # Tutti i dati
-            client.get_data("115_333")
-            
-            # Solo incidenti con feriti (F) a Palermo (082053)
-            client.get_data("41_983", key=".F.082053..")
-            
-            # Multiple città
-            client.get_data("41_983", key=".F.082053+072006..")
-            
-            # Con filtro temporale
-            client.get_data("41_983", start_period="2015", end_period="2020")
+            # Dati con filtro temporale
+            client.get_data("101_1015", start_period="2020", end_period="2023")
+
+            # Con filtro su dimensioni (frequenza annuale)
+            client.get_data("101_1015", key=".A...")
+
+            # Valori multipli per una dimensione
+            client.get_data("101_1015", key=".A+M...")  # Annuale O Mensile
+
+        Note:
+            - Utilizzare sempre start_period/end_period per evitare download molto grandi
+            - Usare get_datastructure() per esplorare le dimensioni disponibili
+            - Usare get_available_constraints() per vedere i valori effettivamente disponibili
         """
         # Costruisci l'endpoint
         if key:
-            endpoint = f"data/{dataflow_id}/{key}/{provider_id}"
+            endpoint = f"data/{dataflow_id}/{key}"
         else:
             endpoint = f"data/{dataflow_id}"
         
@@ -251,9 +275,9 @@ class IstatSDMXClient:
         # Imposta headers per formato
         headers = {}
         if format.lower() == "csv":
-            headers["Accept"] = "application/vnd.sdmx.data+csv;version=1.0.0"
+            headers["Accept"] = "text/csv"
         elif format.lower() == "json":
-            headers["Accept"] = "application/vnd.sdmx.data+json;version=1.0.0"
+            headers["Accept"] = "application/json"
         
         response = self._make_request(endpoint, headers)
         
